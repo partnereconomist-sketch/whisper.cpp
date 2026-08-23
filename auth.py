@@ -180,10 +180,27 @@ def _cli(argv) -> int:
         if len(argv) < 2:
             print(f'uso: auth.py add "<nombre>" [--scope {"|".join(SCOPES)}]', file=sys.stderr)
             return 1
-        scope = 'full'
-        if '--scope' in argv:
-            scope = argv[argv.index('--scope') + 1]
-        clave = agregar(argv[1], scope)
+        uso = f'uso: auth.py add "<nombre>" [--scope {"|".join(SCOPES)}]'
+        scope, resto = 'full', argv[2:]
+        if resto and resto[0] == '--scope':
+            if len(resto) < 2:
+                print('--scope necesita un valor.', file=sys.stderr)
+                print(uso, file=sys.stderr)
+                return 1
+            scope, resto = resto[1], resto[2:]
+        if resto:
+            # Un argumento que no se entiende NO puede terminar en mas privilegio
+            # del que se pidio. `add nombre service` daba scope=full en silencio:
+            # el usuario pedia el scope mas estrecho y se llevaba el mas ancho, y
+            # nada lo decia. Es D-006 en la herramienta que reparte credenciales.
+            print(f'argumento no reconocido: {resto[0]!r}', file=sys.stderr)
+            print(uso, file=sys.stderr)
+            return 1
+        try:
+            clave = agregar(argv[1], scope)
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 1
         print(f"Cliente '{argv[1]}' creado (scope={scope}).\n\n  {clave}\n\n"
               f"Guardala ahora: solo se muestra una vez (se almacena el hash).\n"
               f"Usar como:  Authorization: Bearer {clave}\n"
