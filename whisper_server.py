@@ -1089,7 +1089,7 @@ def _estado_guardar(job_id: str, reg: dict) -> None:
     """El registro en DISCO existe para una sola pregunta: si el servidor se
     reinicia con un job en vuelo, ¿qué le contesta al que venga a consultarlo?
 
-    Sin esto la respuesta sería `job_desconocido`, que manda a revisar el lugar
+    Sin esto la respuesta sería `job_not_found`, que manda a revisar el lugar
     equivocado -- el job existió y su trabajo se perdió, que es algo muy
     distinto de un id inventado. Whisper es justamente el job más largo, así que
     es el más probable de estar corriendo cuando algo se cae."""
@@ -1241,7 +1241,7 @@ def consultar(job_id: str) -> tuple[dict, int]:
         return reg["envelope"], 200
     if reg and reg.get("interrumpido"):
         return _envelope(job_id, "error", error={
-            "code": "job_interrumpido",
+            "code": "job_interrupted",
             "message": "El servidor se reinició mientras este job estaba en curso; su trabajo se "
                        "perdió. Reenvialo — no es un id desconocido ni un resultado vencido. Los "
                        "tramos ya transcritos se reusan, así que no arranca de cero.",
@@ -1251,7 +1251,7 @@ def consultar(job_id: str) -> tuple[dict, int]:
             "code": "result_expired",
             "message": f"El job terminó pero su resultado ya se descartó (TTL {ASYNC_TTL_S}s)."}), 410
     return _envelope(job_id, "error", error={
-        "code": "job_desconocido", "message": f"No hay ningún job con id '{job_id}'"}), 404
+        "code": "job_not_found", "message": f"No hay ningún job con id '{job_id}'"}), 404
 
 
 def _en_cola() -> int:
