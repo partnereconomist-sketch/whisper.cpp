@@ -1,0 +1,13 @@
+# Los scripts de arranque de LADUM AI se guardan y se sacan SIEMPRE con LF.
+#
+# Este equipo tiene `core.autocrlf=true`, así que sin esto un clon nuevo saca
+# `arrancar.sh` con CRLF, y un `.sh` con CRLF puede morir en bash con
+# `$'\r': command not found`. Probado el 2026-08-25: en el Git Bash de este
+# equipo la versión CRLF corrió igual — pero eso depende de la versión de bash y
+# de qué haya en cada línea, y "funciona en mi máquina" es exactamente lo que
+# este arreglo vino a sacar del arranque (D-140).
+#
+# Se acota a los archivos que este proyecto agregó al fork: tocar los `*.sh` de
+# whisper.cpp upstream generaría conflictos en cada merge, sin ganar nada.
+arrancar.sh text eol=lf
+arrancar.local.sh text eol=lf
