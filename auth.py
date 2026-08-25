@@ -52,6 +52,8 @@ DIR = Path(__file__).resolve().parent
 AUTH_FILE = Path(os.environ.get('LADUM_AUTH_FILE')
                  or os.environ.get('WHISPER_AUTH_FILE')
                  or (DIR / '.auth' / 'clients.json'))
+REGISTRO_PROPIO = not (os.environ.get('LADUM_AUTH_FILE')
+                       or os.environ.get('WHISPER_AUTH_FILE'))
 
 # SCOPES
 #   read    -- solo consultar (hoy ninguna op del contrato lo es; queda declarado)
@@ -175,6 +177,16 @@ def _cli(argv) -> int:
     if not argv or argv[0] in ('-h', '--help'):
         print(__doc__)
         return 0
+    # El fallback al registro propio era SILENCIOSO, y esa es justo la forma que
+    # tiene de fallar: se crea un cliente en un archivo que el servidor en marcha
+    # no lee, y el cliente no existe para nadie -- sin un solo mensaje. Medido por
+    # uso el 2026-08-25 corriendo la prueba E.3 del reporte de la rutina, que dejo
+    # un registro paralelo al compartido sin avisar.
+    if REGISTRO_PROPIO:
+        print('AVISO: sin LADUM_AUTH_FILE. Se usa el registro PROPIO de este programa:\n'
+              f'  {AUTH_FILE}\n'
+              'Eso NO es el registro compartido del flujo: lo que des de alta aca no lo\n'
+              've ningun servidor arrancado con LADUM_AUTH_FILE.\n', file=sys.stderr)
     cmd = argv[0]
     if cmd == 'add':
         if len(argv) < 2:
