@@ -216,7 +216,10 @@ def _cli(argv) -> int:
         print(f"Cliente '{argv[1]}' creado (scope={scope}).\n\n  {clave}\n\n"
               f"Guardala ahora: solo se muestra una vez (se almacena el hash).\n"
               f"Usar como:  Authorization: Bearer {clave}\n"
-              f"O en los clientes propios:  WHISPER_API_KEY={clave}")
+              f"O en los clientes propios:  WHISPER_API_KEY={clave}\n"
+              f"  (esa variable la leeria un cliente propio de este programa, y hoy no\n"
+              f"   hay ninguno: dentro del flujo quien llama es el asignador, y lee\n"
+              f"   LADUM_SERVICE_KEY. Seguir el hint a secas da 401.)")
         return 0
     if cmd == 'list':
         cs = listar()
