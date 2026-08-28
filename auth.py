@@ -100,11 +100,28 @@ def requerida() -> bool:
     return bool(_cargar())
 
 
-def agregar(nombre: str, scope: str = 'full') -> str:
+def agregar(nombre: str, scope: str = 'full', reemplazar: bool = False) -> str:
     if scope not in SCOPES:
         raise ValueError(f"scope inválido '{scope}' — usar uno de {SCOPES}")
-    clave = PREFIJO_CLAVE + secrets.token_hex(24)
     clientes = _cargar()
+    # DOS CLIENTES CON EL MISMO NOMBRE SON DOS PUERTAS, NO UNA RENOVADA. El
+    # registro se indexa por HASH, así que `add joshua` sobre un `joshua` que ya
+    # existe no reemplaza nada: deja las dos credenciales vivas. Quien creía
+    # haber rotado la suya sigue teniendo la anterior abierta, y nada se lo dice.
+    #
+    # Pasó el 2026-08-28: reemitir por las dudas dejó dos `borde` y dos `joshua`
+    # en el registro compartido, las cuatro funcionando. Se descubrió porque una
+    # clave que ya se creía sustituida seguía contestando 200.
+    previos = [h for h, c in clientes.items() if c.get('nombre') == nombre]
+    if previos and not reemplazar:
+        raise ValueError(
+            f"ya existe un cliente '{nombre}' ({len(previos)} credencial(es) viva(s)). "
+            f"Emitir otra NO revoca la anterior: quedarían todas abiertas, y sólo se ve "
+            f"corriendo `auth.py list`. Usá --reemplazar para revocar las viejas y emitir una "
+            f"nueva, o elegí otro nombre.")
+    for h in previos:
+        clientes.pop(h)
+    clave = PREFIJO_CLAVE + secrets.token_hex(24)
     clientes[_hash(clave)] = {'nombre': nombre, 'scope': scope,
                               'creado': datetime.now(timezone.utc).isoformat()}
     _guardar(clientes)
@@ -192,34 +209,37 @@ def _cli(argv) -> int:
         if len(argv) < 2:
             print(f'uso: auth.py add "<nombre>" [--scope {"|".join(SCOPES)}]', file=sys.stderr)
             return 1
-        uso = f'uso: auth.py add "<nombre>" [--scope {"|".join(SCOPES)}]'
-        scope, resto = 'full', argv[2:]
-        if resto and resto[0] == '--scope':
-            if len(resto) < 2:
-                print('--scope necesita un valor.', file=sys.stderr)
+        uso = f'uso: auth.py add "<nombre>" [--scope {"|".join(SCOPES)}] [--reemplazar]'
+        scope, reemplazar, resto = 'full', False, argv[2:]
+        while resto:
+            if resto[0] == '--scope':
+                if len(resto) < 2:
+                    print('--scope necesita un valor.', file=sys.stderr)
+                    print(uso, file=sys.stderr)
+                    return 1
+                scope, resto = resto[1], resto[2:]
+            elif resto[0] == '--reemplazar':
+                reemplazar, resto = True, resto[1:]
+            else:
+                # Un argumento que no se entiende NO puede terminar en mas privilegio
+                # del que se pidio. `add nombre service` daba scope=full en silencio:
+                # el usuario pedia el scope mas estrecho y se llevaba el mas ancho, y
+                # nada lo decia. Es D-006 en la herramienta que reparte credenciales.
+                print(f'argumento no reconocido: {resto[0]!r}', file=sys.stderr)
                 print(uso, file=sys.stderr)
                 return 1
-            scope, resto = resto[1], resto[2:]
-        if resto:
-            # Un argumento que no se entiende NO puede terminar en mas privilegio
-            # del que se pidio. `add nombre service` daba scope=full en silencio:
-            # el usuario pedia el scope mas estrecho y se llevaba el mas ancho, y
-            # nada lo decia. Es D-006 en la herramienta que reparte credenciales.
-            print(f'argumento no reconocido: {resto[0]!r}', file=sys.stderr)
-            print(uso, file=sys.stderr)
-            return 1
+        previos = sum(1 for c in listar() if c['nombre'] == argv[1])
         try:
-            clave = agregar(argv[1], scope)
+            clave = agregar(argv[1], scope, reemplazar)
         except ValueError as e:
             print(e, file=sys.stderr)
             return 1
-        print(f"Cliente '{argv[1]}' creado (scope={scope}).\n\n  {clave}\n\n"
+        revocadas = (f"Se revocaron {previos} credencial(es) anterior(es) de '{argv[1]}'.\n"
+                     if reemplazar and previos else '')
+        print(f"{revocadas}Cliente '{argv[1]}' creado (scope={scope}).\n\n  {clave}\n\n"
               f"Guardala ahora: solo se muestra una vez (se almacena el hash).\n"
               f"Usar como:  Authorization: Bearer {clave}\n"
-              f"O en los clientes propios:  WHISPER_API_KEY={clave}\n"
-              f"  (esa variable la leeria un cliente propio de este programa, y hoy no\n"
-              f"   hay ninguno: dentro del flujo quien llama es el asignador, y lee\n"
-              f"   LADUM_SERVICE_KEY. Seguir el hint a secas da 401.)")
+              f"O en los clientes propios:  LADUM_SERVICE_KEY={clave}")
         return 0
     if cmd == 'list':
         cs = listar()
