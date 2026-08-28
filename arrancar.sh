@@ -115,15 +115,43 @@ fi
 # Se busca hacia arriba porque las dos disposiciones que existen hoy no tienen la
 # misma profundidad: `<REPOS>/whisper.cpp` y `<REPOS>/Whispers/whisper.cpp`.
 if [ -z "${LADUM_WORK_DIR:-}" ]; then
+  # UN `work/` SIN `_auth/` NO SE ACEPTA. Hasta el 2026-08-28 se tomaba igual
+  # «como último recurso», en silencio, y eso no es un volumen de repuesto: es
+  # OTRO volumen. Dos consecuencias, y la segunda es la cara:
+  #
+  #   1. este programa escribe sus salidas ahí y el asignador las busca en el
+  #      volumen de verdad — el lote falla tres capas abajo con un archivo que
+  #      «no está», que es el síntoma que el mensaje de acá abajo ya describía;
+  #   2. `LADUM_AUTH_FILE` apunta a un registro que no existe, así que
+  #      `auth.requerida()` da false y este programa ACEPTA TRABAJO SIN
+  #      CREDENCIAL. Es el fallo abierto de D-149 entrando por la puerta del
+  #      volumen en vez de por la del registro.
+  #
+  # El default de `docker-compose.yml` es `${LADUM_WORK_DIR:-../work}`, así que
+  # un `docker compose up` sin la variable CREA justo ese señuelo, vacío. Pasó:
+  # el 28-ago había un `Flujo/work` vacío al lado de los repos.
+  vacios=""
   for rel in .. ../.. ../../..; do
     cand="$AQUI/$rel/work"
     if [ -d "$cand/_auth" ]; then LADUM_WORK_DIR="$(cd "$cand" && pwd)"; break; fi
-    if [ -d "$cand" ] && [ -z "${LADUM_WORK_DIR:-}" ]; then
-      LADUM_WORK_DIR="$(cd "$cand" && pwd)"   # sirve, pero sin la marca de _auth
-    fi
+    [ -d "$cand" ] && vacios="$vacios
+    · $(cd "$cand" && pwd)  (existe, pero sin _auth/)"
   done
 fi
 if [ -z "${LADUM_WORK_DIR:-}" ] || [ ! -d "$LADUM_WORK_DIR" ]; then
+  if [ -n "$vacios" ]; then
+    printf '
+Encontre esto subiendo desde %s:%s
+' "$AQUI" "$vacios" >&2
+    printf '
+Ninguno sirve: un work/ SIN _auth/ es un volumen distinto del que usan los
+' >&2
+    printf 'contenedores. Arrancar contra ese no da un archivo faltante: da otro registro
+' >&2
+    printf 'de credenciales -- vacio -- y este programa aceptaria trabajo sin autenticar.
+
+' >&2
+  fi
   cat >&2 <<FIN
 ERROR: no encontré el volumen compartido y no voy a inventar uno.
 
