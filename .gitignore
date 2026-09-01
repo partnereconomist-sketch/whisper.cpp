@@ -80,3 +80,13 @@ __pycache__/
 
 # Arranque local del equipo: ruta real del volumen. No se versiona.
 arrancar.local.*
+
+# EL REGISTRO REAL ES `_auth/`, CON GUION BAJO. Este patron estuvo mal desde el
+# principio: protegia `.auth/` --el fallback de desarrollo aislado de auth.py--
+# mientras el registro que usan TODOS los programas desde D-149/D-150 vive en
+# `<LADUM_WORK_DIR>/_auth/clients.json`. El resultado fue que el registro de
+# credenciales del asignador termino versionado en el repo, publicando que
+# existia un cliente `joshua` con scope `full`, que es exactamente el dano que
+# el comentario de arriba dice querer evitar. Lo encontro la rutina nocturna
+# del 2026-09-01, no una persona: nadie mira un `.gitignore` que "ya estaba".
+_auth/

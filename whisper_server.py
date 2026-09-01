@@ -1259,7 +1259,25 @@ def _en_cola() -> int:
 
 
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """El servidor, con el `SO_REUSEADDR` de Windows apagado (D-148).
+
+    EN WINDOWS `SO_REUSEADDR` NO SIGNIFICA LO QUE PARECE, y `HTTPServer` lo
+    prende siempre. En Linux quiere decir «reinicia sin esperar el TIME_WAIT».
+    En Windows quiere decir que un SEGUNDO proceso puede atarse al MISMO puerto
+    y quedarse con las conexiones nuevas.
+
+    Costo una lectura equivocada el 2026-08-27 en el borde: un proceso viejo
+    seguia escuchando, el nuevo imprimio su banner entero y despues fallo al
+    atar EN SILENCIO. Las respuestas venian del viejo, y el sintoma apuntaba a
+    un codigo que estaba bien.
+
+    El borde se arreglo ese dia; estos tres quedaron afuera y el hueco vivio
+    anotado en `TASKS.md` desde el 28-ago hasta que la rutina nocturna del
+    2026-09-01 lo volvio a nombrar. Que el arreglo de un programa no se aplique
+    a los que comparten la forma es como se acumulan estas cosas.
+    """
     daemon_threads = True
+    allow_reuse_address = os.name != 'nt'
 
 
 class Handler(BaseHTTPRequestHandler):
