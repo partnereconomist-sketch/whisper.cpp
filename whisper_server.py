@@ -525,6 +525,17 @@ def construir_comando(params: dict, wav: Path) -> list[str]:
 # nombre de carpeta o el que escribe y el que lee no coinciden.
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Los usuarios cuelgan de acá, y la infraestructura del volumen (`_auth/`,
+# `_jobs/`, `_contract-jobs/`) se queda en la raíz. Son dos espacios de nombres,
+# no uno con una lista negra: el saneo convierte lo inválido en `_`, así que
+# cualquier reservado de la raíz es alcanzable escribiéndolo (`@auth` -> `_auth`)
+# y ninguna lista puede cerrarlo. Lo que lo cierra es la PROFUNDIDAD — un usuario
+# llamado `u` aterriza en `u/u/` y no colisiona con nada.
+# Es un solo carácter a propósito: las rutas de este flujo ya rondan los 70.
+# Si esto cambia, cambia en los SEIS. La batería de conformidad lo comprueba.
+SUBDIR_USUARIOS = 'u'
+
+
 _SEGMENTO_INVALIDO = re.compile(r"[^A-Za-z0-9._-]")
 
 
@@ -549,7 +560,7 @@ def base_de_sesion(session_id=None, cliente=None, on_behalf_of=None) -> Path:
             raise ContractError("forbidden_impersonation", str(e))
     else:
         crudo = (cliente or {}).get("nombre") if cliente else None
-    base = (Path(WORK_DIR) / _segmento_seguro(crudo, "local")
+    base = (Path(WORK_DIR) / SUBDIR_USUARIOS / _segmento_seguro(crudo, "local")
             / _segmento_seguro(session_id, "sin-sesion")).resolve()
     try:
         base.mkdir(parents=True, exist_ok=True)
