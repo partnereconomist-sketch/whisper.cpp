@@ -536,6 +536,41 @@ def construir_comando(params: dict, wav: Path) -> list[str]:
 SUBDIR_USUARIOS = 'u'
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# De cuándo es el código que ESTE proceso cargó
+#
+# Reiniciar no es desplegar ([[D-180]]). Un banner impreso, un puerto que
+# responde y un `/health` en verde salen IGUALES con el código viejo, así que
+# desde afuera no había forma de saber si un arreglo está corriendo. No es
+# teórico: el arreglo de D-175 estuvo días escrito y con la batería en verde
+# sobre un borde que corría el código de antes.
+#
+# `disco` se mide EN CADA LLAMADA a propósito. Medirlo al arrancar contestaría
+# siempre que no hay nada nuevo, que es exactamente lo que hay que detectar.
+# Mira los `.py` de ESTE directorio, sin bajar a subdirectorios: son los módulos
+# de este proceso y no los de otro que viva al lado.
+# ══════════════════════════════════════════════════════════════════════════════
+_ARRANQUE = time.time()
+
+
+def _codigo() -> dict:
+    d = os.path.dirname(os.path.abspath(__file__))
+    ultimo = 0.0
+    try:
+        for n in os.listdir(d):
+            if n.endswith('.py'):
+                try:
+                    ultimo = max(ultimo, os.path.getmtime(os.path.join(d, n)))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return {'arranque': _ARRANQUE, 'disco': ultimo,
+            # Si el archivo en disco es más nuevo que el proceso, hay un arreglo
+            # escrito que todavía NO está corriendo.
+            'sin_desplegar': bool(ultimo and ultimo > _ARRANQUE)}
+
+
 _SEGMENTO_INVALIDO = re.compile(r"[^A-Za-z0-9._-]")
 
 
@@ -1318,6 +1353,7 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "ok", "contract": CONTRACT_VERSION, "tool": TOOL_NAME,
                 "ops": ["transcribe"], "work_dir": WORK_DIR,
                 "dispositivo": dispositivo(),
+                "codigo": _codigo(),
                 # Publicado para que quien despacha decida `vad` CHEQUEANDO en
                 # vez de suponer: sin modelo, --vad muere a mitad del trabajo.
                 "vad": {"disponible": bool(modelo_vad()), "modelo": modelo_vad()},
