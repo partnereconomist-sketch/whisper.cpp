@@ -199,12 +199,31 @@ def _cli(argv) -> int:
     # no lee, y el cliente no existe para nadie -- sin un solo mensaje. Medido por
     # uso el 2026-08-25 corriendo la prueba E.3 del reporte de la rutina, que dejo
     # un registro paralelo al compartido sin avisar.
+    # ESCRIBIR EL REGISTRO PROPIO SE NIEGA; no alcanza con avisar. El aviso está
+    # desde el 2026-08-25 y la trampa siguió funcionando: sale por stderr justo
+    # antes de la clave, que es lo único que uno mira. Tres veces --25-ago y dos
+    # el 17-sep-- terminó igual: una credencial que ningún servidor ve y una app
+    # que contesta 401 sin decir por qué. `--propio` sigue permitiendo el
+    # desarrollo aislado, pero como decisión y no por descuido.
+    propio_a_proposito = '--propio' in argv
+    argv = [a for a in argv if a != '--propio']
+    cmd = argv[0] if argv else ''
+    if REGISTRO_PROPIO and cmd in ('add', 'revoke') and not propio_a_proposito:
+        _vol = os.environ.get('LADUM_WORK_DIR')
+        _ruta = (str(Path(_vol) / '_auth' / 'clients.json') if _vol
+                 else '<volumen>/_auth/clients.json')
+        print(f'ERROR: sin LADUM_AUTH_FILE, `{cmd}` tocaria el registro PROPIO de este\n'
+              f'programa ({AUTH_FILE}), que NINGUN servidor del flujo lee. La credencial\n'
+              'no existiria para nadie: la app contesta 401 y nada dice por que.\n\n'
+              f'  LADUM_AUTH_FILE={_ruta} python auth.py {" ".join(argv)}\n\n'
+              'Si de verdad queres el registro propio (desarrollo aislado): agrega --propio.',
+              file=sys.stderr)
+        return 2
     if REGISTRO_PROPIO:
         print('AVISO: sin LADUM_AUTH_FILE. Se usa el registro PROPIO de este programa:\n'
               f'  {AUTH_FILE}\n'
               'Eso NO es el registro compartido del flujo: lo que des de alta aca no lo\n'
               've ningun servidor arrancado con LADUM_AUTH_FILE.\n', file=sys.stderr)
-    cmd = argv[0]
     if cmd == 'add':
         if len(argv) < 2:
             print(f'uso: auth.py add "<nombre>" [--scope {"|".join(SCOPES)}]', file=sys.stderr)
