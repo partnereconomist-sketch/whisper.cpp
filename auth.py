@@ -76,10 +76,32 @@ def _hash(clave: str) -> str:
     return hashlib.sha256(clave.encode('utf-8')).hexdigest()
 
 
-def _cargar() -> dict:
+class RegistroIlegible(Exception):
+    """El registro EXISTE y no se pudo leer. No es lo mismo que estar vacío.
+
+    Confundir las dos cosas es un fallo abierto: «no hay clientes» apaga la
+    autenticación a propósito, y `_cargar` se tragaba un JSON corrupto o un
+    permiso denegado devolviendo lo mismo. Un archivo ilegible apagaba la puerta.
+    """
+
+
+def _cargar(estricto: bool = False) -> dict:
+    """Los clientes registrados.
+
+    `estricto` separa los dos casos. Que el archivo NO EXISTA sigue siendo
+    `{}` en los dos modos: es el estado legítimo de una máquina donde todavía
+    no se dio de alta a nadie, y es el que mantiene la promesa de que la
+    seguridad no frena el desarrollo. Que exista y no se pueda leer --JSON roto,
+    permiso denegado, medio caído-- es una FALLA, y en modo estricto se levanta
+    para que quien decide pueda cerrar en vez de abrir.
+    """
     try:
         return json.loads(AUTH_FILE.read_text(encoding='utf-8'))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        if estricto:
+            raise RegistroIlegible(f'{AUTH_FILE}: {type(e).__name__}: {e}')
         return {}
 
 
@@ -94,10 +116,15 @@ def _guardar(clientes: dict) -> None:
         pass
 
 
-def requerida() -> bool:
+def requerida(estricto: bool = False) -> bool:
     """True solo si hay al menos un cliente registrado. Sin clientes, el servidor
-    funciona como siempre -- la seguridad no frena el desarrollo."""
-    return bool(_cargar())
+    funciona como siempre -- la seguridad no frena el desarrollo.
+
+    Con `estricto=True` levanta `RegistroIlegible` en vez de contestar False
+    cuando el archivo existe y no se puede leer. Lo usa quien mira hacia afuera:
+    ahí «no pude leer el registro» no puede significar «no hace falta autenticar».
+    """
+    return bool(_cargar(estricto))
 
 
 def agregar(nombre: str, scope: str = 'full', reemplazar: bool = False) -> str:
@@ -147,7 +174,16 @@ def verificar(cabecera: str | None, op: str | None = None):
     """(ok, cliente_o_motivo). Distingue 'falta la cabecera' de 'la clave no
     sirve': son dos errores distintos para quien llama, y confundirlos manda a
     revisar el lugar equivocado."""
-    clientes = _cargar()
+    # UN REGISTRO ILEGIBLE CIERRA, NO ABRE. Antes `_cargar` devolvía `{}` ante un
+    # JSON corrupto o un permiso denegado, y ese `{}` significaba «auth apagada»:
+    # el archivo que guarda las credenciales, al romperse, quitaba la exigencia
+    # de credenciales. Un archivo que no existe sigue siendo auth apagada -- eso
+    # es una máquina sin nadie dado de alta, no una falla.
+    try:
+        clientes = _cargar(estricto=True)
+    except RegistroIlegible as e:
+        return False, (f'el registro de credenciales no se pudo leer ({e}). No se atiende sin '
+                       'saber quién está registrado: un registro ilegible cierra, no abre.')
     if not clientes:
         return True, None                      # auth apagada
     if not cabecera:
