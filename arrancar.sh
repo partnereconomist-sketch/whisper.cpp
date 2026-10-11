@@ -106,6 +106,33 @@ FIN
   exit 1
 fi
 
+# ── 3b. rutas que ESE python entienda (D-178) ────────────────────────────────
+# `pwd` en Git Bash da `/c/Users/…`, que es una ruta de MSYS. Un Python NATIVO
+# de Windows la lee como `C:\c\Users\…` y no encuentra nada. Andaba sólo porque
+# MSYS traduce argumentos y variables al vuelo, y esa traducción no es del
+# script sino de quien lo invoca: con MSYS_NO_PATHCONV=1 o MSYS2_ARG_CONV_EXCL=*
+# en el entorno (las terminales de Claude Code las ponen) no traduce nada.
+# Comprobado el 2026-10-11 en el borde y el grafo, que tienen esta misma forma:
+# `bash arrancar.sh` moría con «can't open file 'C:\\c\\Users\\…'». Así que se
+# traduce ACÁ y el arranque deja de depender del shell que lo llama.
+#
+# `cygpath -m` y no `-w`: da `C:/Users/…`, la misma forma que deriva el respaldo
+# de abajo y la que ya usan los `arrancar.local.sh`. Un Python de MSYS/Cygwin
+# (sys.platform distinto de win32) sí entiende la ruta POSIX, y a ése no se le
+# toca nada.
+PY_NATIVO=0
+[ "$($PY -c 'import sys; print(sys.platform)' 2>/dev/null)" = "win32" ] && PY_NATIVO=1
+ruta_para_py() {
+  [ "$PY_NATIVO" = 1 ] || { printf '%s\n' "$1"; return; }
+  cygpath -m "$1" 2>/dev/null && return
+  case "$1" in
+    /[A-Za-z]|/[A-Za-z]/*) local d="${1:1:1}"; printf '%s:/%s\n' "${d^^}" "${1:3}" ;;
+    /*) echo "  AVISO        no sé traducir '$1' para un Python de Windows sin cygpath" >&2
+        printf '%s\n' "$1" ;;
+    *)  printf '%s\n' "$1" ;;
+  esac
+}
+
 # ── 4. el volumen compartido, por ruta relativa ──────────────────────────────
 # Tiene que ser EL MISMO directorio físico que los contenedores montan en /work:
 # si no, los nativos y los contenedores escriben en lugares distintos y el lote
@@ -167,9 +194,12 @@ FIN
   exit 1
 fi
 
-export LADUM_WORK_DIR
+# Las tres llegan al Python por el entorno, así que se traducen igual que el
+# argumento (D-178). Con una ruta que el Python no ve, el registro «no existe»,
+# `auth.requerida()` da false y este programa acepta trabajo sin credencial.
+export LADUM_WORK_DIR="$(ruta_para_py "$LADUM_WORK_DIR")"
 export WHISPER_WORK_DIR="$LADUM_WORK_DIR"
-export LADUM_AUTH_FILE="${LADUM_AUTH_FILE:-$LADUM_WORK_DIR/_auth/clients.json}"
+export LADUM_AUTH_FILE="$(ruta_para_py "${LADUM_AUTH_FILE:-$LADUM_WORK_DIR/_auth/clients.json}")"
 
 # ── 5. lo que va a hacer falta, comprobado ACÁ y no a mitad del primer job ────
 falta=""
@@ -196,4 +226,4 @@ if [ -n "$falta" ]; then
   printf "\n  AVISO: falta algo para que pueda transcribir:%b\n\n" "$falta" >&2
 fi
 
-exec $PY "$AQUI/whisper_server.py"
+exec $PY "$(ruta_para_py "$AQUI/whisper_server.py")"
