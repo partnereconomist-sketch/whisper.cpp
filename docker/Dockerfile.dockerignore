@@ -1,0 +1,14 @@
+# Contexto de docker/Dockerfile: SOLO lo que el build de whisper-cli y el
+# servidor necesitan. Lista de inclusion y no de exclusion: este repo es un fork
+# de whisper.cpp, con GB de modelos en models/, build/ de Windows, bindings de
+# otros lenguajes y lo que upstream agregue mañana. Lo que no esta abajo no entra.
+*
+!CMakeLists.txt
+!cmake/
+!ggml/
+!src/
+!include/
+!examples/
+!bindings/javascript/package-tmpl.json
+!whisper_server.py
+!auth.py

@@ -297,29 +297,90 @@ def dispositivo() -> dict:
     a partir de que la maquina tenga o no una GPU: que exista no dice que este
     compilada la ruta para usarla, y confundir las dos cosas seria inventar
     justamente el dato que esto viene a dar (D-003).
+
+    DONDE SE BUSCAN LAS BIBLIOTECAS (2026-11-11, D-099). Hasta esta fecha se
+    miraba SOLO la carpeta del binario y solo nombres que EMPEZARAN con `ggml`.
+    Eso es la forma de Windows: ahi las `.dll` quedan junto al `.exe`. En Linux
+    son `libggml-*.so` y viven en OTRA carpeta (el build las deja en
+    `build/ggml/src/`, una instalacion en `../lib`), asi que la misma funcion
+    habria dicho `cpu` con un build de CUDA. Ahora se le pregunta al cargador
+    dinamico (`ldd`), que dice cuales carga DE VERDAD, y se suman las carpetas
+    donde un build deja backends que se cargan en tiempo de ejecucion.
+
+    BLAS NO ES GPU. `podria_usar_gpu` cuenta solo backends de GPU; BLAS acelera
+    la CPU y va aparte, en `aceleracion_cpu`. Antes un build con BLAS publicaba
+    `podria_usar_gpu: true` corriendo en CPU.
+
+    Y SIN NINGUNA BIBLIOTECA A LA VISTA NO SE DICE `cpu`. Un build estatico o una
+    carpeta no estandar no dejan evidencia: decir `cpu` ahi seria suponer.
     """
-    ACELERADOS = ("cuda", "vulkan", "metal", "hip", "sycl", "blas", "openvino", "cann")
+    GPU = ("cuda", "vulkan", "metal", "hip", "sycl", "musa", "opencl", "cann", "kompute")
     if not WHISPER_CLI:
         return {"device": "desconocido", "podria_usar_gpu": None, "backends": [],
                 "nota": "no se encontro whisper-cli; sin binario no hay build que mirar"}
-    carpeta = Path(WHISPER_CLI).parent
-    try:
-        libs = [p.stem for p in carpeta.iterdir()
-                if p.suffix.lower() in (".dll", ".so", ".dylib") and p.stem.startswith("ggml")]
-    except OSError as e:
-        return {"device": "desconocido", "podria_usar_gpu": None, "backends": [],
-                "nota": f"no se pudo listar {carpeta}: {e}"}
-    backends = sorted(l.replace("ggml-", "") for l in libs if l != "ggml")
-    acelerados = [b for b in backends if any(a in b for a in ACELERADOS)]
-    return {
-        "device": "cuda" if any("cuda" in b for b in acelerados) else "cpu",
-        "podria_usar_gpu": bool(acelerados),
-        "backends": backends,
-        "binario": WHISPER_CLI,
-        "nota": ("este build solo trae el backend de CPU: una GPU en la maquina no cambiaria "
-                 "nada hasta recompilar whisper.cpp con soporte (ver D-060)")
-               if not acelerados else f"backends acelerados presentes: {acelerados}",
-    }
+    libs, faltan, fuentes = _bibliotecas_ggml(Path(WHISPER_CLI))
+    backends = sorted(n.replace("ggml-", "") for n in libs if n != "ggml")
+    gpus = [b for b in backends if any(g in b for g in GPU)]
+    cpu_acel = [b for b in backends if "blas" in b]
+    info = {"podria_usar_gpu": bool(gpus), "backends": backends,
+            "aceleracion_cpu": cpu_acel, "bibliotecas": libs,
+            "leido_de": fuentes, "binario": WHISPER_CLI}
+    if faltan:
+        info.update(device="desconocido", podria_usar_gpu=None,
+                    nota=f"el cargador no encuentra {faltan}: este binario no arranca asi")
+    elif not backends:
+        info.update(device="desconocido", podria_usar_gpu=None,
+                    nota="no aparece ninguna biblioteca ggml (build estatico o carpeta no "
+                         "estandar): sin evidencia no se dice cpu (D-003)")
+    elif gpus:
+        info.update(device=gpus[0], nota=f"backends de GPU presentes: {gpus}")
+    else:
+        info.update(device="cpu",
+                    nota="este build solo trae backends de CPU"
+                         + (f" (con {', '.join(cpu_acel)}, que no es GPU)" if cpu_acel else "")
+                         + ": una GPU en la maquina no cambiaria nada hasta recompilar "
+                           "whisper.cpp con soporte (ver D-060, D-100)")
+    return info
+
+
+# `ggml.dll`, `ggml-cpu.dll`, `libggml-cuda.so`, `libggml-base.so.0.9.4`, `libggml.dylib`
+_LIB_GGML = re.compile(r"^(?:lib)?(ggml(?:-[A-Za-z0-9_]+)?)\.(?:dll|so|dylib)(?:\.\d+)*$", re.I)
+
+
+def _bibliotecas_ggml(binario: Path) -> tuple:
+    """({nombre: ruta}, [las que el cargador no encuentra], [de donde se leyo]).
+
+    Primero el cargador dinamico, que es la verdad de un binario enlazado; despues
+    las carpetas donde quedan los backends: junto al binario (Windows, y los que
+    ggml carga en tiempo de ejecucion) y `../lib`, `../lib64` (instalacion Unix).
+    """
+    libs, faltan, fuentes = {}, [], []
+    import shutil
+    if os.name != "nt" and shutil.which("ldd"):
+        try:
+            p = subprocess.run(["ldd", str(binario)], capture_output=True, text=True, timeout=10)
+            fuentes.append("ldd")
+            for linea in p.stdout.splitlines():
+                partes = linea.split()
+                m = _LIB_GGML.match(partes[0]) if partes else None
+                if not m:
+                    continue
+                if "not" in partes and "found" in partes:
+                    faltan.append(partes[0])
+                elif len(partes) >= 3 and partes[1] == "=>":
+                    libs[m.group(1).lower()] = partes[2]
+        except (OSError, subprocess.SubprocessError) as e:
+            fuentes.append(f"ldd fallo: {e}")
+    for carpeta in (binario.parent, binario.parent.parent / "lib", binario.parent.parent / "lib64"):
+        try:
+            hallados = [f for f in carpeta.iterdir() if _LIB_GGML.match(f.name)]
+        except OSError:
+            continue
+        if hallados:
+            fuentes.append(str(carpeta))
+        for f in hallados:
+            libs.setdefault(_LIB_GGML.match(f.name).group(1).lower(), str(f))
+    return libs, faltan, fuentes
 
 
 class ContractError(Exception):
